@@ -1,1 +1,158 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>لوحة تحكم التفعيلات</title>
+<style>
+  * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, sans-serif; }
+  body { background: #f4f6f9; margin: 0; padding: 20px; color: #1a2438; }
+  .container { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; margin-bottom: 20px; }
+  .login-box, .card {
+    background: white; border-radius: 12px; padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 16px;
+  }
+  input, button {
+    padding: 10px 14px; border-radius: 8px; border: 1px solid #ddd;
+    font-size: 14px;
+  }
+  input { width: 100%; margin-bottom: 10px; }
+  button {
+    background: #0e7c66; color: white; border: none; cursor: pointer;
+    font-weight: 600;
+  }
+  button:hover { background: #0a5e4d; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th, td { padding: 10px; text-align: right; border-bottom: 1px solid #eee; font-size: 13.5px; }
+  .status { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .status.pending { background: #fdf0e0; color: #a6641c; }
+  .status.code_sent { background: #e0edfd; color: #1c5aa6; }
+  .status.activated { background: #e0fded; color: #1ca65e; }
+  .status.deactivated { background: #fde0e0; color: #a61c1c; }
+  .row-actions { display: flex; gap: 6px; }
+  .row-actions input { width: 80px; margin: 0; }
+  .row-actions button { padding: 6px 10px; font-size: 12px; }
+  #app { display: none; }
+</style>
+</head>
+<body>
 
+<div class="container">
+  <h1>🔐 لوحة تحكم تفعيلات التطبيق</h1>
+
+  <div class="login-box" id="login-box">
+    <input type="password" id="admin-secret" placeholder="أدخل مفتاح الأدمن السري" />
+    <button onclick="login()">دخول</button>
+  </div>
+
+  <div id="app">
+    <div class="card">
+      <button onclick="loadRequests()">🔄 تحديث القائمة</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>رقم الهاتف</th>
+            <th>الحالة</th>
+            <th>وقت الطلب</th>
+            <th>إجراء</th>
+          </tr>
+        </thead>
+        <tbody id="requests-table"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let adminSecret = '';
+
+function login() {
+  adminSecret = document.getElementById('admin-secret').value;
+  document.getElementById('login-box').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  loadRequests();
+}
+
+async function loadRequests() {
+  try {
+    const res = await fetch('/api/admin/requests', {
+      headers: { 'x-admin-secret': adminSecret }
+    });
+    if (!res.ok) {
+      alert('مفتاح الأدمن غير صحيح أو حصل خطأ');
+      return;
+    }
+    const data = await res.json();
+    renderTable(data.requests);
+  } catch (err) {
+    alert('خطأ في الاتصال بالسيرفر');
+  }
+}
+
+function renderTable(requests) {
+  const tbody = document.getElementById('requests-table');
+  if (requests.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#999;">لا توجد طلبات بعد</td></tr>';
+    return;
+  }
+  tbody.innerHTML = requests.map(r => `
+    <tr>
+      <td>${r.phone}</td>
+      <td><span class="status ${r.status}">${statusLabel(r.status)}</span></td>
+      <td>${new Date(r.requestedAt).toLocaleString('ar-EG')}</td>
+      <td>
+        <div class="row-actions">
+          <input type="text" id="code-${r.phone}" placeholder="الكود" />
+          <button onclick="sendCode('${r.phone}')">إرسال</button>
+          <button onclick="deactivate('${r.phone}')" style="background:#a61c1c;">إيقاف</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function statusLabel(status) {
+  const map = {
+    pending: 'بانتظار الكود',
+    code_sent: 'تم إرسال الكود',
+    activated: 'مُفعّل',
+    deactivated: 'مُوقف',
+  };
+  return map[status] || status;
+}
+
+async function sendCode(phone) {
+  const code = document.getElementById(`code-${phone}`).value.trim();
+  if (!code) return alert('اكتب الكود الأول');
+
+  await fetch('/api/admin/send-code', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': adminSecret,
+    },
+    body: JSON.stringify({ phone, code }),
+  });
+  loadRequests();
+}
+
+async function deactivate(phone) {
+  if (!confirm(`تأكيد إيقاف تفعيل الرقم ${phone}؟`)) return;
+
+  await fetch('/api/admin/deactivate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-admin-secret': adminSecret,
+    },
+    body: JSON.stringify({ phone }),
+  });
+  loadRequests();
+}
+</script>
+
+</body>
+</html>
